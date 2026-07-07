@@ -127,6 +127,78 @@ async function listPullFiles(repo, number, token) {
   return files;
 }
 
+async function listCommitsByPath(repo, docsPath, token, sinceIso) {
+  const items = [];
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    const url = `${GITHUB_API}/repos/${repo}/commits?path=${encodeURIComponent(docsPath)}&per_page=${perPage}&page=${page}`;
+    const commits = await fetchJson(url, token);
+
+    if (!Array.isArray(commits) || commits.length === 0) {
+      break;
+    }
+
+    let reachedOlder = false;
+
+    for (const c of commits) {
+      const createdAt = c.commit?.author?.date || c.commit?.committer?.date;
+      if (!createdAt) {
+        continue;
+      }
+      if (new Date(createdAt) < new Date(sinceIso)) {
+        reachedOlder = true;
+        break;
+      }
+      items.push(c);
+    }
+
+    if (reachedOlder || commits.length < perPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return items;
+}
+
+async function getCommitDetails(repo, sha, token) {
+  const url = `${GITHUB_API}/repos/${repo}/commits/${sha}`;
+  return fetchJson(url, token);
+}
+
+function extractSubpagesFromFiles(files, docsPath) {
+  const normalized = docsPath.replace(/^\/+|\/+$/g, "");
+  const prefixes = [
+    `${normalized}/`,
+    `${normalized.replace(/^articles\//, "")}/`
+  ];
+
+  const subpages = new Set();
+  for (const f of files) {
+    const filename = (f.filename || "").toLowerCase();
+    for (const prefix of prefixes) {
+      const p = prefix.toLowerCase();
+      if (!filename.startsWith(p)) {
+        continue;
+      }
+
+      const rest = filename.slice(p.length);
+      const segment = rest.split("/").filter(Boolean)[0];
+      if (segment) {
+        subpages.add(titleCase(segment));
+      } else {
+        subpages.add("General");
+      }
+      break;
+    }
+  }
+
+  return Array.from(subpages);
+}
+
 function detectSubcategory(repo, pr, filePaths) {
   const labels = (pr.labels || []).map((l) => l.name.toLowerCase());
   const haystack = `${pr.title} ${(pr.body || "")}`.toLowerCase();
@@ -407,10 +479,42 @@ async function main() {
   const azureDocsPathPrefixes = splitCsv(
     getEnv("AZURE_DOCS_PATH_PREFIXES", "articles/active-directory")
   );
+  const azureDocsCommitsPath = getEnv("AZURE_DOCS_COMMITS_PATH", "articles/active-directory");
+  const useCommitFeedForAzureDocs = getEnv("USE_COMMITS_FOR_AZURE_DOCS", "true").toLowerCase() === "true";
 
   const allRows = [];
 
   for (const repo of repos) {
+    if (repo.toLowerCase() === "microsoftdocs/azure-docs" && useCommitFeedForAzureDocs) {
+      const commits = await listCommitsByPath(repo, azureDocsCommitsPath, githubToken, sinceIso);
+      for (const commit of commits) {
+        const sha = commit.sha;
+        const details = await getCommitDetails(repo, sha, githubToken);
+        const subpages = extractSubpagesFromFiles(details.files || [], azureDocsCommitsPath);
+        if (subpages.length === 0) {
+          continue;
+        }
+
+        const createdAt = details.commit?.author?.date || details.commit?.committer?.date || generatedAtIso;
+        const message = (details.commit?.message || "").split(/\r?\n/)[0] || `Commit ${sha.slice(0, 7)}`;
+        const author = details.author?.login || details.commit?.author?.name || "unknown";
+
+        for (const subpage of subpages) {
+          allRows.push({
+            subcategory: subpage,
+            number: sha.slice(0, 7),
+            title: message,
+            repo,
+            author,
+            createdAt,
+            labels: ["commit"],
+            url: details.html_url || commit.html_url
+          });
+        }
+      }
+      continue;
+    }
+
     const prs = await listPullRequests(repo, githubToken, sinceIso);
     for (const pr of prs) {
       const files = await listPullFiles(repo, pr.number, githubToken);

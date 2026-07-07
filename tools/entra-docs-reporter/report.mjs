@@ -166,6 +166,7 @@ async function listCommitsByPath(repo, docsPath, token, sinceIso) {
 
 async function listCommitsForSubpages(repo, basePath, subpages, token, sinceIso) {
   const rows = [];
+  const commitToPrCache = new Map();
 
   for (const subpage of subpages) {
     const pathForCall = `${basePath.replace(/\/+$/, "")}/${subpage.replace(/^\/+/, "")}`;
@@ -179,6 +180,7 @@ async function listCommitsForSubpages(repo, basePath, subpages, token, sinceIso)
 
       const message = (commit.commit?.message || "").split(/\r?\n/)[0] || `Commit ${commit.sha.slice(0, 7)}`;
       const author = commit.author?.login || commit.commit?.author?.name || "unknown";
+      const prUrl = await getAssociatedPullRequestUrl(repo, commit.sha, token, commitToPrCache);
 
       rows.push({
         subcategory: titleCase(subpage),
@@ -188,12 +190,44 @@ async function listCommitsForSubpages(repo, basePath, subpages, token, sinceIso)
         author,
         createdAt,
         labels: ["commit"],
+        source: "Commit",
+        prUrl,
         url: commit.html_url
       });
     }
   }
 
   return rows;
+}
+
+async function getAssociatedPullRequestUrl(repo, sha, token, cache) {
+  if (cache.has(sha)) {
+    return cache.get(sha);
+  }
+
+  try {
+    const url = `${GITHUB_API}/repos/${repo}/commits/${sha}/pulls?per_page=1`;
+    const prs = await fetchJson(url, token);
+    const prUrl = Array.isArray(prs) && prs.length > 0 ? prs[0].html_url : "";
+    cache.set(sha, prUrl || "");
+    return prUrl || "";
+  } catch {
+    cache.set(sha, "");
+    return "";
+  }
+}
+
+function rowsSince(rows, sinceIso) {
+  const since = new Date(sinceIso);
+  return rows.filter((r) => new Date(r.createdAt) >= since);
+}
+
+function groupRows(rows) {
+  return rows.reduce((acc, row) => {
+    acc[row.subcategory] ??= [];
+    acc[row.subcategory].push(row);
+    return acc;
+  }, {});
 }
 
 async function getCommitDetails(repo, sha, token) {
@@ -442,7 +476,7 @@ function buildHtml({ generatedAtIso, sinceIso, grouped, total }) {
 </html>`;
 }
 
-function buildIssueBody({ generatedAtIso, sinceIso, grouped, total }) {
+function buildMarkdownWindow({ title, grouped, total, sinceIso, generatedAtIso }) {
   const sections = Object.entries(grouped)
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([subcategory, rows]) => {
@@ -450,39 +484,60 @@ function buildIssueBody({ generatedAtIso, sinceIso, grouped, total }) {
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .map((row) => {
           const labels = row.labels.length ? row.labels.join(", ") : "-";
-          const prLabel = `#${row.number}`;
-          return `| ${escMd(row.author)} | ${escMd(toAmsterdamTime(row.createdAt))} | ${escMd(prLabel)} | ${escMd(row.repo)} | ${escMd(row.title)} | ${escMd(row.url)} | ${escMd(labels)} |`;
+          const itemLabel = row.source === "Commit" ? row.number : `#${row.number}`;
+          return `| ${escMd(row.author)} | ${escMd(toAmsterdamTime(row.createdAt))} | ${escMd(row.source || "PR")} | ${escMd(itemLabel)} | ${escMd(row.repo)} | ${escMd(row.title)} | ${escMd(row.url)} | ${escMd(row.prUrl || "-")} | ${escMd(labels)} |`;
         })
         .join("\n");
 
       return `
 ## ${esc(subcategory)} (${rows.length})
 
-| Author | Created (Europe/Amsterdam) | PR | Repository | Title | URL | Labels |
-|---|---|---|---|---|---|---|
+| Author | Created (Europe/Amsterdam) | Source | Item | Repository | Title | URL | PR URL | Labels |
+|---|---|---|---|---|---|---|---|---|
 ${tableRows}`;
     })
     .join("\n\n");
 
   if (total === 0) {
     return [
-      "# Daily Entra Documentation PR Report",
-      "",
+      `## ${title}`,
       `Window: ${sinceIso} to ${generatedAtIso}`,
-      "",
-      "No new Entra-related documentation pull requests were opened in the last 24 hours.",
-      "",
-      "Generated automatically by GitHub Actions."
-    ].join("\n");
+      "No updates in this window."
+    ].join("\n\n");
   }
+
+  return [
+    `## ${title}`,
+    `Window: ${sinceIso} to ${generatedAtIso}`,
+    `Total items: ${total}`,
+    "",
+    sections
+  ].join("\n");
+}
+
+function buildIssueBody({ generatedAtIso, primarySinceIso, primaryGrouped, primaryTotal, extendedSinceIso, extendedGrouped, extendedTotal }) {
+  const primary = buildMarkdownWindow({
+    title: "Last 24 Hours",
+    grouped: primaryGrouped,
+    total: primaryTotal,
+    sinceIso: primarySinceIso,
+    generatedAtIso
+  });
+
+  const extended = buildMarkdownWindow({
+    title: "Last 7 Days",
+    grouped: extendedGrouped,
+    total: extendedTotal,
+    sinceIso: extendedSinceIso,
+    generatedAtIso
+  });
 
   return [
     "# Daily Entra Documentation PR Report",
     "",
-    `Window: ${sinceIso} to ${generatedAtIso}`,
-    `Total new PRs: ${total}`,
+    primary,
     "",
-    sections,
+    extended,
     "",
     "Generated automatically by GitHub Actions."
   ].join("\n");
@@ -498,8 +553,11 @@ async function main() {
   const generatedAtIso = generatedAt.toISOString();
 
   const lookbackHours = Number.parseInt(getEnv("LOOKBACK_HOURS", "24"), 10);
-  const since = new Date(generatedAt.getTime() - lookbackHours * 60 * 60 * 1000);
-  const sinceIso = since.toISOString();
+  const extendedLookbackHours = Number.parseInt(getEnv("LOOKBACK_HOURS_EXTENDED", "168"), 10);
+  const primarySince = new Date(generatedAt.getTime() - lookbackHours * 60 * 60 * 1000);
+  const extendedSince = new Date(generatedAt.getTime() - extendedLookbackHours * 60 * 60 * 1000);
+  const primarySinceIso = primarySince.toISOString();
+  const extendedSinceIso = extendedSince.toISOString();
 
   const repos = splitCsv(getEnv("ENTRA_DOC_REPOS", "MicrosoftDocs/entra-docs,MicrosoftDocs/azure-docs"));
   const keywords = splitCsv(
@@ -529,13 +587,13 @@ async function main() {
         azureDocsCommitsPath,
         azureDocsSubpages,
         githubToken,
-        sinceIso
+        extendedSinceIso
       );
       allRows.push(...commitRows);
       continue;
     }
 
-    const prs = await listPullRequests(repo, githubToken, sinceIso);
+    const prs = await listPullRequests(repo, githubToken, extendedSinceIso);
     for (const pr of prs) {
       const files = await listPullFiles(repo, pr.number, githubToken);
       if (!isEntraRelated(repo, pr, files, keywords, azureDocsPathPrefixes)) {
@@ -550,32 +608,35 @@ async function main() {
         author: pr.user?.login || "unknown",
         createdAt: pr.created_at,
         labels: (pr.labels || []).map((l) => l.name),
+        source: "PR",
+        prUrl: pr.html_url,
         url: pr.html_url
       });
     }
   }
 
   const uniqueRows = Array.from(
-    new Map(allRows.map((row) => [`${row.repo}#${row.number}`, row])).values()
+    new Map(allRows.map((row) => [`${row.repo}#${row.number}#${row.subcategory}`, row])).values()
   );
 
-  const grouped = uniqueRows.reduce((acc, row) => {
-    acc[row.subcategory] ??= [];
-    acc[row.subcategory].push(row);
-    return acc;
-  }, {});
+  const primaryRows = rowsSince(uniqueRows, primarySinceIso);
+  const groupedPrimary = groupRows(primaryRows);
+  const groupedExtended = groupRows(uniqueRows);
 
   const html = buildHtml({
     generatedAtIso,
-    sinceIso,
-    grouped,
-    total: uniqueRows.length
+    sinceIso: primarySinceIso,
+    grouped: groupedPrimary,
+    total: primaryRows.length
   });
   const issueBody = buildIssueBody({
     generatedAtIso,
-    sinceIso,
-    grouped,
-    total: uniqueRows.length
+    primarySinceIso,
+    primaryGrouped: groupedPrimary,
+    primaryTotal: primaryRows.length,
+    extendedSinceIso,
+    extendedGrouped: groupedExtended,
+    extendedTotal: uniqueRows.length
   });
 
   const htmlOutputPath = getEnv("REPORT_OUTPUT", "report-output/entra-daily-report.html");
@@ -595,16 +656,18 @@ async function main() {
   const metadata = {
     title: `Daily Entra Docs PR Report - ${dateLabel}`,
     label: getEnv("ISSUE_LABEL", "entra-docs-report"),
-    total: uniqueRows.length,
+    total24h: primaryRows.length,
+    total7d: uniqueRows.length,
     generatedAtIso,
-    sinceIso
+    primarySinceIso,
+    extendedSinceIso
   };
 
   const metadataOutputPath = getEnv("REPORT_METADATA_OUTPUT", "report-output/entra-daily-report.json");
   await fs.mkdir(path.dirname(metadataOutputPath), { recursive: true });
   await fs.writeFile(metadataOutputPath, JSON.stringify(metadata, null, 2), "utf8");
 
-  console.log(`Report created. New PR count: ${uniqueRows.length}`);
+  console.log(`Report created. 24h items: ${primaryRows.length}; 7d items: ${uniqueRows.length}`);
   console.log(`Saved HTML report to ${htmlOutputPath}`);
   console.log(`Saved issue body to ${issueOutputPath}`);
   console.log(`Saved report metadata to ${metadataOutputPath}`);

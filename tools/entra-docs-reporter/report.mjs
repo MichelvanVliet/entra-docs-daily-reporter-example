@@ -24,6 +24,13 @@ function esc(value) {
     .replace(/'/g, "&#39;");
 }
 
+function escMd(value) {
+  return String(value)
+    .replace(/\|/g, "\\|")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
 function titleCase(value) {
   return value
     .split(/[-_\s]+/)
@@ -339,36 +346,17 @@ function buildIssueBody({ generatedAtIso, sinceIso, grouped, total }) {
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .map((row) => {
           const labels = row.labels.length ? row.labels.join(", ") : "-";
-          return `
-            <tr>
-              <td><a href="${esc(row.url)}">#${row.number}</a></td>
-              <td>${esc(row.title)}</td>
-              <td>${esc(row.repo)}</td>
-              <td>${esc(row.author)}</td>
-              <td>${esc(toAmsterdamTime(row.createdAt))}</td>
-              <td>${esc(labels)}</td>
-            </tr>`;
+          const prLabel = `#${row.number}`;
+          return `| ${escMd(row.author)} | ${escMd(toAmsterdamTime(row.createdAt))} | ${escMd(prLabel)} | ${escMd(row.repo)} | ${escMd(row.title)} | ${escMd(row.url)} | ${escMd(labels)} |`;
         })
         .join("\n");
 
       return `
 ## ${esc(subcategory)} (${rows.length})
 
-<table>
-  <thead>
-    <tr>
-      <th>PR</th>
-      <th>Title</th>
-      <th>Repository</th>
-      <th>Author</th>
-      <th>Created (Europe/Amsterdam)</th>
-      <th>Labels</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${tableRows}
-  </tbody>
-</table>`;
+| Author | Created (Europe/Amsterdam) | PR | Repository | Title | URL | Labels |
+|---|---|---|---|---|---|---|
+${tableRows}`;
     })
     .join("\n\n");
 

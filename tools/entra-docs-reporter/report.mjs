@@ -74,34 +74,57 @@ function isLikelyLearnPagePath(repo, filePath) {
 
 function toMsLearnUrl(repo, filePath) {
   const normalized = normalizeDocPath(filePath);
-  if (repo.toLowerCase() === "microsoftdocs/azure-docs" && normalized.toLowerCase().startsWith("articles/")) {
-    return `https://learn.microsoft.com/en-us/azure/${normalized.slice("articles/".length)}`;
+  const lowerNorm = normalized.toLowerCase();
+  
+  if (repo.toLowerCase() === "microsoftdocs/azure-docs") {
+    if (lowerNorm.startsWith("articles/")) {
+      return `https://learn.microsoft.com/en-us/azure/${normalized.slice("articles/".length)}`;
+    }
+    const idx = lowerNorm.indexOf("articles/");
+    if (idx >= 0) {
+      return `https://learn.microsoft.com/en-us/azure/${normalized.slice(idx + "articles/".length)}`;
+    }
   }
-  if (repo.toLowerCase() === "microsoftdocs/entra-docs" && normalized.toLowerCase().startsWith("docs/")) {
-    return `https://learn.microsoft.com/en-us/entra/${normalized.slice("docs/".length)}`;
+  
+  if (repo.toLowerCase() === "microsoftdocs/entra-docs") {
+    if (lowerNorm.startsWith("docs/")) {
+      return `https://learn.microsoft.com/en-us/entra/${normalized.slice("docs/".length)}`;
+    }
+    const idx = lowerNorm.indexOf("docs/");
+    if (idx >= 0) {
+      return `https://learn.microsoft.com/en-us/entra/${normalized.slice(idx + "docs/".length)}`;
+    }
   }
+  
   return "";
 }
 
 function pickPrimaryDocFile(repo, filePaths) {
-  const files = filePaths.filter((f) => isLikelyLearnPagePath(repo, f));
-  if (files.length === 0) {
-    return "";
+  const publishableFiles = filePaths.filter((f) => isLikelyLearnPagePath(repo, f));
+  if (publishableFiles.length > 0) {
+    if (repo.toLowerCase() === "microsoftdocs/azure-docs") {
+      const preferred = publishableFiles.find((f) => f.toLowerCase().startsWith("articles/active-directory/"));
+      if (preferred) return preferred;
+      return publishableFiles[0];
+    }
+    if (repo.toLowerCase() === "microsoftdocs/entra-docs") {
+      return publishableFiles[0];
+    }
   }
 
-  if (repo.toLowerCase() === "microsoftdocs/azure-docs") {
-    const preferred = files.find((f) => f.toLowerCase().startsWith("articles/active-directory/"));
-    if (preferred) return preferred;
-    const articlesMd = files.find((f) => f.toLowerCase().startsWith("articles/"));
-    if (articlesMd) return articlesMd;
-  }
-
-  if (repo.toLowerCase() === "microsoftdocs/entra-docs") {
-    const preferred = files.find((f) => f.toLowerCase().startsWith("docs/"));
-    if (preferred) return preferred;
-  }
-
-  return files[0];
+  const mdFiles = filePaths.filter((f) => f.toLowerCase().endsWith(".md"));
+  const likelyPublishable = mdFiles.filter((f) => {
+    const lowerF = f.toLowerCase();
+    if (lowerF.endsWith("/toc.md") || lowerF.endsWith("/toc.yml") || lowerF.endsWith("/index.yml")) {
+      return false;
+    }
+    if (!lowerF.includes("articles/") && !lowerF.includes("docs/")) {
+      return false;
+    }
+    return true;
+  });
+  
+  return likelyPublishable.length > 0 ? likelyPublishable[0] : "";
 }
 
 function titleCase(value) {

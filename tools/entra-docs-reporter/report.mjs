@@ -31,6 +31,13 @@ function escMd(value) {
     .trim();
 }
 
+function mdLink(label, url) {
+  if (!url || !String(url).trim()) {
+    return "-";
+  }
+  return `[${label}](${url})`;
+}
+
 function normalizeDocPath(filePath) {
   let path = filePath.replace(/\\/g, "/").replace(/\.md$/i, "");
   if (path.endsWith("/index")) {
@@ -560,17 +567,17 @@ function buildMarkdownWindow({ title, grouped, total, sinceIso, generatedAtIso }
       const tableRows = rows
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .map((row) => {
-          const labels = row.labels.length ? row.labels.join(", ") : "-";
           const itemLabel = row.source === "Commit" ? row.number : `#${row.number}`;
-          return `| ${escMd(row.author)} | ${escMd(toAmsterdamTime(row.createdAt))} | ${escMd(row.source || "PR")} | ${escMd(itemLabel)} | ${escMd(row.repo)} | ${escMd(row.title)} | ${escMd(row.commitUrl || "-")} | ${escMd(row.msLearnUrl || "-")} | ${escMd(row.prUrl || "-")} | ${escMd(labels)} |`;
+          const updateText = `${itemLabel} ${row.title}`;
+          return `| ${escMd(toAmsterdamTime(row.createdAt))} | ${escMd(row.author)} | ${escMd(updateText)} | ${mdLink("commit", row.commitUrl)} | ${mdLink("learn", row.msLearnUrl)} | ${mdLink("pr", row.prUrl)} |`;
         })
         .join("\n");
 
       return `
 ## ${esc(subcategory)} (${rows.length})
 
-| Author | Created (Europe/Amsterdam) | Source | Item | Repository | Title | Commit URL | MS Learn URL | PR URL | Labels |
-|---|---|---|---|---|---|---|---|---|---|
+| Created (Europe/Amsterdam) | Author | Update | Commit | Learn | PR |
+|---|---|---|---|---|---|
 ${tableRows}`;
     })
     .join("\n\n");

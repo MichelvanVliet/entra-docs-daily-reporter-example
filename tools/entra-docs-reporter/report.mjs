@@ -262,7 +262,7 @@ async function listCommitsForSubpages(repo, basePath, subpages, token, sinceIso)
       }
       const filePaths = (details.files || []).map((f) => f.filename).filter(Boolean);
       const primaryDocFile = pickPrimaryDocFile(repo, filePaths);
-      const msLearnUrl = primaryDocFile ? toMsLearnUrl(repo, primaryDocFile) : "";
+      const msLearnUrl = primaryDocFile && isLikelyLearnPagePath(repo, primaryDocFile) ? toMsLearnUrl(repo, primaryDocFile) : "";
 
       rows.push({
         subcategory: titleCase(subpage),
@@ -355,14 +355,29 @@ function detectSubcategory(repo, pr, filePaths) {
   const files = filePaths.map((f) => f.toLowerCase());
 
   const rules = [
-    { name: "Conditional Access", patterns: [/conditional[- ]?access/, /\/conditional-access\//] },
-    { name: "Authentication", patterns: [/authentication/, /\/authentication\//] },
-    { name: "Identity Governance", patterns: [/identity[- ]?governance/, /\/identity-governance\//] },
-    { name: "External Identities", patterns: [/external[- ]?identit/, /\/external-identities\//] },
-    { name: "Identity Protection", patterns: [/identity[- ]?protection/, /\/identity-protection\//] },
-    { name: "Permissions Management", patterns: [/permissions[- ]?management/, /\/permissions-management\//] },
-    { name: "Workload Identities", patterns: [/workload[- ]?identit/, /\/workload-identities\//] },
-    { name: "Verified ID", patterns: [/verified id/, /\/verified-id\//] }
+    { name: "Conditional Access", patterns: [/conditional[- ]?access/, /\/conditional-access\//i] },
+    { name: "Authentication", patterns: [/\bauthentication\b/, /\/authentication\//i] },
+    { name: "App Provisioning", patterns: [/app[- ]?provisioning|provisioning|scim/, /\/app-provisioning\//i] },
+    { name: "App Proxy", patterns: [/app[- ]?proxy|application[- ]?proxy|kerberos/, /\/app-proxy\//i] },
+    { name: "Identity Governance", patterns: [/identity[- ]?governance|access[- ]?review/, /\/identity-governance\//i] },
+    { name: "External Identities", patterns: [/external[- ]?identit|b2b|b2c|guest/, /\/external-identities\//i] },
+    { name: "Identity Protection", patterns: [/identity[- ]?protection|risk[- ]?detection|risky user/, /\/identity-protection\//i] },
+    { name: "Permissions Management", patterns: [/permissions[- ]?management|entitlement[- ]?management|pam|privileged/, /\/permissions-management\//i] },
+    { name: "Workload Identities", patterns: [/workload[- ]?identit|managed identity|service principal|spn/, /\/workload-identities\//i] },
+    { name: "Verified ID", patterns: [/verified id|verifiable credentials/, /\/verified-id\//i] },
+    { name: "Hybrid Identity", patterns: [/hybrid|azure ad connect|connect|sync|pass-through|federation/, /\/hybrid\//i] },
+    { name: "Cloud Sync", patterns: [/cloud sync|cloud synchronization|lightweight sync/, /\/cloud-sync\//i] },
+    { name: "Devices", patterns: [/\bdevice\b|device management|intune|enrollment|compliance|windows hello/, /\/devices\//i] },
+    { name: "Manage Apps", patterns: [/app management|application management|sso|single sign-on|app assignment/, /\/manage-apps\//i] },
+    { name: "SaaS Apps", patterns: [/saas|salesforce|slack|github|dropbox|okta|workday|box|zoom/, /\/saas-apps\//i] },
+    { name: "Roles", patterns: [/\brole\b|rbac|admin role|custom role|directory role/, /\/roles\//i] },
+    { name: "Enterprise Users", patterns: [/enterprise user|bulk operation|bulk user|bulk create/, /\/enterprise-users\//i] },
+    { name: "Governance", patterns: [/governance|lifecycle|access package|attestation|review/, /\/governance\//i] },
+    { name: "Fundamentals", patterns: [/fundamental|basic|getting started|what is|overview/, /\/fundamentals\//i] },
+    { name: "Develop", patterns: [/\bapi\b|sdk|developer|custom app|integration|protocol|oauth|saml|openid|graphql/, /\/develop\//i] },
+    { name: "Azure AD Dev", patterns: [/azure ad|microsoft graph|v1\.0|v2\.0|endpoint/, /\/azuread-dev\//i] },
+    { name: "CIEM", patterns: [/cloud infrastructure entitlement|ciem|entitlement management|rights management/, /\/cloud-infrastructure-entitlement-management\//i] },
+    { name: "Verify", patterns: [/\bverify\b|verification/, /\/verify\//i] }
   ];
 
   for (const rule of rules) {
@@ -384,6 +399,10 @@ function detectSubcategory(repo, pr, filePaths) {
     if (repo.toLowerCase() === "microsoftdocs/azure-docs") {
       const idx = segments.indexOf("articles");
       if (idx >= 0 && segments[idx + 1]) {
+        // For active-directory paths, dig deeper to find the subpage
+        if (segments[idx + 1].toLowerCase() === "active-directory" && segments[idx + 2]) {
+          return titleCase(segments[idx + 2]);
+        }
         return titleCase(segments[idx + 1]);
       }
     }
@@ -569,7 +588,13 @@ function buildMarkdownWindow({ title, grouped, total, sinceIso, generatedAtIso }
         .map((row) => {
           const itemLabel = row.source === "Commit" ? row.number : `#${row.number}`;
           const updateText = `${itemLabel} ${row.title}`;
-          return `| ${escMd(toAmsterdamTime(row.createdAt))} | ${escMd(row.author)} | ${escMd(updateText)} | ${mdLink("commit", row.commitUrl)} | ${mdLink("learn", row.msLearnUrl)} | ${mdLink("pr", row.prUrl)} |`;
+          const created = ` ${escMd(toAmsterdamTime(row.createdAt))} `;
+          const author = ` ${escMd(row.author)} `;
+          const update = ` ${escMd(updateText)} `;
+          const commit = ` ${mdLink("commit", row.commitUrl)} `;
+          const learn = ` ${mdLink("learn", row.msLearnUrl)} `;
+          const pr = ` ${mdLink("pr", row.prUrl)} `;
+          return `|${created}|${author}|${update}|${commit}|${learn}|${pr}|`;
         })
         .join("\n");
 

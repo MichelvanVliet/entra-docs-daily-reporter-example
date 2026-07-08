@@ -46,6 +46,16 @@ function normalizeDocPath(filePath) {
   return path;
 }
 
+// Non-publishable top-level folders under docs/ in MicrosoftDocs/entra-docs
+const ENTRA_DOCS_NON_PUBLISH_FOLDERS = new Set([
+  "breadcrumb",
+  "backup",
+  "includes",
+  "media",
+  "standards",
+  "architecture",
+]);
+
 function isLikelyLearnPagePath(repo, filePath) {
   const p = filePath.replace(/\\/g, "/").toLowerCase();
   if (!p.endsWith(".md")) {
@@ -64,6 +74,8 @@ function isLikelyLearnPagePath(repo, filePath) {
 
   if (repo.toLowerCase() === "microsoftdocs/entra-docs") {
     if (!p.startsWith("docs/")) return false;
+    const topFolder = p.slice("docs/".length).split("/")[0];
+    if (ENTRA_DOCS_NON_PUBLISH_FOLDERS.has(topFolder)) return false;
     if (p.includes("/includes/")) return false;
     if (p.includes("/media/")) return false;
     return true;
@@ -97,6 +109,19 @@ function toMsLearnUrl(repo, filePath) {
   }
   
   return "";
+}
+
+function toGithubSourceUrl(repo, filePath) {
+  if (!filePath) return "";
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  const repoLower = repo.toLowerCase();
+  if (repoLower === "microsoftdocs/entra-docs") {
+    return `https://github.com/MicrosoftDocs/entra-docs/blob/main/${normalizedPath}`;
+  }
+  if (repoLower === "microsoftdocs/azure-docs") {
+    return `https://github.com/MicrosoftDocs/azure-docs/blob/main/${normalizedPath}`;
+  }
+  return `https://github.com/${repo}/blob/main/${normalizedPath}`;
 }
 
 function pickPrimaryDocFile(repo, filePaths) {
@@ -286,6 +311,7 @@ async function listCommitsForSubpages(repo, basePath, subpages, token, sinceIso)
       const filePaths = (details.files || []).map((f) => f.filename).filter(Boolean);
       const primaryDocFile = pickPrimaryDocFile(repo, filePaths);
       const msLearnUrl = primaryDocFile && isLikelyLearnPagePath(repo, primaryDocFile) ? toMsLearnUrl(repo, primaryDocFile) : "";
+      const sourceUrl = primaryDocFile ? toGithubSourceUrl(repo, primaryDocFile) : "";
 
       rows.push({
         subcategory: titleCase(subpage),
@@ -298,6 +324,7 @@ async function listCommitsForSubpages(repo, basePath, subpages, token, sinceIso)
         source: "Commit",
         commitUrl: commit.html_url,
         msLearnUrl,
+        sourceUrl,
         prUrl,
         url: commit.html_url
       });
@@ -463,6 +490,9 @@ function buildHtml({ generatedAtIso, sinceIso, grouped, total }) {
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .map((row) => {
           const labels = row.labels.length ? row.labels.join(", ") : "-";
+          const sourceLink = row.sourceUrl ? `<a href="${esc(row.sourceUrl)}">source</a>` : "-";
+          const learnLink = row.msLearnUrl ? `<a href="${esc(row.msLearnUrl)}">learn</a>` : "-";
+          const commitLink = row.commitUrl ? `<a href="${esc(row.commitUrl)}">commit</a>` : "-";
           return `
             <tr>
               <td><a href="${esc(row.url)}">#${row.number}</a></td>
@@ -471,6 +501,9 @@ function buildHtml({ generatedAtIso, sinceIso, grouped, total }) {
               <td>${esc(row.author)}</td>
               <td>${esc(toAmsterdamTime(row.createdAt))}</td>
               <td>${esc(labels)}</td>
+              <td>${commitLink}</td>
+              <td>${learnLink}</td>
+              <td>${sourceLink}</td>
             </tr>`;
         })
         .join("\n");
@@ -486,6 +519,9 @@ function buildHtml({ generatedAtIso, sinceIso, grouped, total }) {
               <th>Author</th>
               <th>Created (Europe/Amsterdam)</th>
               <th>Labels</th>
+              <th>Commit</th>
+              <th>Learn</th>
+              <th>Source</th>
             </tr>
           </thead>
           <tbody>
@@ -616,16 +652,17 @@ function buildMarkdownWindow({ title, grouped, total, sinceIso, generatedAtIso }
           const update = `  ${escMd(updateText)}  `;
           const commit = `  ${mdLink("commit", row.commitUrl)}  `;
           const learn = `  ${mdLink("learn", row.msLearnUrl)}  `;
+          const source = `  ${mdLink("source", row.sourceUrl)}  `;
           const pr = `  ${mdLink("pr", row.prUrl)}  `;
-          return `|${created}|${author}|${update}|${commit}|${learn}|${pr}|`;
+          return `|${created}|${author}|${update}|${commit}|${learn}|${source}|${pr}|`;
         })
         .join("\n");
 
       return `
 ## ${esc(subcategory)} (${rows.length})
 
-| Created (Europe/Amsterdam) | Author | Update | Commit | Learn | PR |
-|---|---|---|---|---|---|
+| Created (Europe/Amsterdam) | Author | Update | Commit | Learn | Source | PR |
+|---|---|---|---|---|---|---|
 ${tableRows}`;
     })
     .join("\n\n");
@@ -735,6 +772,10 @@ async function main() {
         msLearnUrl: (() => {
           const primaryDocFile = pickPrimaryDocFile(repo, files);
           return primaryDocFile && isLikelyLearnPagePath(repo, primaryDocFile) ? toMsLearnUrl(repo, primaryDocFile) : "";
+        })(),
+        sourceUrl: (() => {
+          const primaryDocFile = pickPrimaryDocFile(repo, files);
+          return primaryDocFile ? toGithubSourceUrl(repo, primaryDocFile) : "";
         })(),
         prUrl: pr.html_url,
         url: pr.html_url

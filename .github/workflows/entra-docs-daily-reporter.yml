@@ -82,10 +82,15 @@ jobs:
 
             if (found.data.items.length > 0) {
               const issueNumber = found.data.items[0].number;
+              const issueBodyForComment = issueBody.trim();
               const notificationComment = [
                 `Daily report refresh for ${metadata.title}.`,
                 '',
-                `The issue body was updated with the latest 24-hour report (${metadata.total24h} items).`
+                `The issue body was updated with the latest 24-hour report (${metadata.total24h} items).`,
+                '',
+                '---',
+                '',
+                issueBodyForComment
               ].join('\n');
               await github.rest.issues.update({
                 owner,

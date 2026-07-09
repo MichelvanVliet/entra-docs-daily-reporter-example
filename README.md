@@ -7,10 +7,11 @@ The workflow runs at 07:00 Europe/Amsterdam, collects updates from Entra docs so
 ## 1-Minute Quick Start
 
 1. Fork or clone this repository.
-2. In GitHub, open **Actions** and run **Entra Docs Daily Reporter** with **Run workflow**.
-3. Open the created issue titled `Daily Entra Docs PR Report - YYYY-MM-DD`.
-4. Click **Subscribe** on that issue (or watch repo issues).
-5. You now receive daily updates through GitHub notification email.
+2. In GitHub, open **Settings** -> **General** -> **Features** and make sure **Issues** is enabled for the repository.
+3. Open **Actions** and run **Entra Docs Daily Reporter** with **Run workflow**.
+4. Open the created issue titled `Daily Entra Docs PR Report - YYYY-MM-DD`.
+5. Click **Subscribe** on that issue (or watch repo issues).
+6. You now receive daily updates through GitHub notification email.
 
 ## What You Get
 
@@ -59,3 +60,17 @@ gh run list --workflow "entra-docs-daily-reporter.yml" --repo <owner>/<repo> --l
 
 - No SMTP provider is required.
 - Delivery is via GitHub notifications, so account notification settings apply.
+
+## Troubleshooting
+
+### `Unhandled error: HttpError: Issues has been disabled in this repository.`
+
+The workflow publishes the report by creating or updating a GitHub issue. If repository issues are disabled, the run fails at the publish step.
+
+Fix:
+
+1. Open **Settings** -> **General** -> **Features**
+2. Enable **Issues**
+3. Re-run the workflow
+
+This is currently a **manual** repository setting. It is not something this workflow can reliably automate with the default `GITHUB_TOKEN`, because enabling issues changes repository-level settings.

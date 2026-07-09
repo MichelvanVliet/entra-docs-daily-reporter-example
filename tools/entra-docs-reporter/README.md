@@ -19,7 +19,7 @@ It posts a grouped Markdown report to a GitHub issue so GitHub notifications can
 4. Results are grouped by the top-level folder under `docs/` (e.g. `identity`, `external-id`, `global-secure-access`).
 5. For each file, an MS Learn URL and a GitHub source link are generated.
 6. Workflow creates or updates a daily issue with the report body.
-7. If the daily issue already exists, the workflow adds a refresh comment with the latest report so GitHub still sends an email notification.
+7. If the daily issue already exists, the workflow adds a refresh comment with the latest report content so GitHub still sends an email notification with a non-empty body.
 8. GitHub sends notifications to subscribed users/watchers.
 9. HTML, Markdown, and metadata outputs are uploaded as artifacts.
 

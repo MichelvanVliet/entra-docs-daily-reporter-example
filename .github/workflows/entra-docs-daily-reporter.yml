@@ -68,6 +68,11 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const label = metadata.label || process.env.ISSUE_LABEL;
+            const notificationComment = [
+              `Daily report refresh for ${metadata.title}.`,
+              '',
+              issueBody
+            ].join('\n');
 
             const labelsResponse = await github.rest.issues.listLabelsForRepo({ owner, repo, per_page: 100 });
             const hasLabel = labelsResponse.data.some(l => l.name === label);
@@ -89,6 +94,12 @@ jobs:
                 title,
                 body: issueBody,
                 labels: [label]
+              });
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: notificationComment
               });
               core.info(`Updated issue #${issueNumber}`);
             } else {

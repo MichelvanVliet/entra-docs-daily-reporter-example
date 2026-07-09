@@ -243,7 +243,7 @@ async function listPublishBatches(repo, token, sinceIso) {
 
       const msg = (c.commit?.message || "").toLowerCase();
       const isPublishBatch =
-        msg.startsWith("merge pull request") && msg.includes("auto publish") ||
+        (msg.startsWith("merge pull request") && msg.includes("auto publish")) ||
         msg.startsWith("merging changes synced from");
 
       if (isPublishBatch) {
@@ -290,18 +290,21 @@ async function rowsFromPublishBatches(repo, token, sinceIso) {
       const msLearnUrl = toMsLearnUrl(repo, filePath);
       const sourceUrl = toGithubSourceUrl(repo, filePath);
 
-      // Derive subcategory from the file path the same way the fallback path
-      // logic in detectSubcategory does for entra-docs files.
+      // Derive subcategory from the file path. All publishable entra-docs files
+      // live under docs/<section>/..., so segments[1] is the section name.
+      // Files that don't match this pattern (e.g. from other repos if the
+      // function is reused) fall back to "General".
       const segments = filePath.replace(/\\/g, "/").toLowerCase().split("/").filter(Boolean);
       let subcategory = "General";
       if (segments[0] === "docs" && segments[1]) {
         subcategory = titleCase(segments[1]);
       }
 
-      // Use the file name (without extension) as the human-readable title so
-      // readers know exactly which page changed.
+      // Use the file name as the human-readable title, converting kebab/snake to
+      // title case so e.g. "how-to-transfer-authenticator-new-phone" becomes
+      // "How To Transfer Authenticator New Phone".
       const fileName = filePath.split("/").pop() || filePath;
-      const title = fileName.replace(/\.md$/i, "").replace(/[-_]/g, " ");
+      const title = titleCase(fileName.replace(/\.md$/i, ""));
 
       rows.push({
         subcategory,

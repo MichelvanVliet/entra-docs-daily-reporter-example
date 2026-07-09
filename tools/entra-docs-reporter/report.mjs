@@ -124,6 +124,25 @@ function titleCase(value) {
     .join(" ");
 }
 
+// Extracts a human-readable "published via" label from a publish-batch commit message.
+// For "Merge pull request #13804 from ..." → "Auto Publish #13804"
+// For "Merging changes synced from ..." → "Learn Build Sync"
+function extractPublishedVia(commitMessage) {
+  const firstLine = (commitMessage || "").split("\n")[0].trim();
+  const lower = firstLine.toLowerCase();
+
+  if (lower.startsWith("merge pull request")) {
+    const prMatch = firstLine.match(/#(\d+)/);
+    if (prMatch) {
+      return `Auto Publish #${prMatch[1]}`;
+    }
+  }
+  if (lower.startsWith("merging changes synced from")) {
+    return "Learn Build Sync";
+  }
+  return firstLine;
+}
+
 function toAmsterdamTime(iso) {
   const formatter = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Amsterdam",
@@ -311,8 +330,10 @@ async function rowsFromPublishBatches(repo, token, sinceIso) {
         sha: batch.sha,
         shortSha: batch.sha.slice(0, 7),
         title,
+        fileName,
         repo,
         author: batch.commit?.committer?.name || batch.author?.login || "learn-build-service",
+        publishedVia: extractPublishedVia(batch.commit?.message || ""),
         createdAt,
         labels: ["published"],
         source: "AutoPublish",
@@ -504,23 +525,21 @@ function buildMarkdownWindow({ title, grouped, total, sinceIso, generatedAtIso }
       const tableRows = rows
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .map((row) => {
-          const itemLabel = row.shortSha;
-          const updateText = `${itemLabel} ${row.title}`;
-          const created = `  ${escMd(toAmsterdamTime(row.createdAt))}  `;
-          const author = `  ${escMd(row.author)}  `;
-          const update = `  ${escMd(updateText)}  `;
+          const published = `  ${escMd(toAmsterdamTime(row.createdAt))}  `;
+          const publishedVia = `  ${escMd(row.publishedVia || row.author)}  `;
+          const docFile = `  ${escMd(row.fileName || row.title)}  `;
           const commit = `  ${mdLink("commit", row.commitUrl)}  `;
           const learn = `  ${mdLink("learn", row.msLearnUrl)}  `;
           const source = `  ${mdLink("source", row.sourceUrl)}  `;
           const pr = `  ${mdLink("pr", row.prUrl)}  `;
-          return `|${created}|${author}|${update}|${commit}|${learn}|${source}|${pr}|`;
+          return `|${published}|${publishedVia}|${docFile}|${commit}|${learn}|${source}|${pr}|`;
         })
         .join("\n");
 
       return `
 ## ${esc(subcategory)} (${rows.length})
 
-| Created (Europe/Amsterdam) | Author | Update | Commit | Learn | Source | PR |
+| Published (Europe/Amsterdam) | Published via | Doc file | Commit | Learn | Source | PR |
 |---|---|---|---|---|---|---|
 ${tableRows}`;
     })
@@ -571,7 +590,22 @@ async function main() {
   const generatedAtIso = generatedAt.toISOString();
 
   const lookbackHours = Number.parseInt(getEnv("LOOKBACK_HOURS", "24"), 10);
-  const primarySince = new Date(generatedAt.getTime() - lookbackHours * 60 * 60 * 1000);
+
+  // Anchor the lookback window to midnight (Amsterdam) of the current calendar day
+  // rather than "now minus N hours".  This ensures that both the scheduled 07:00
+  // run and a manual workflow_dispatch triggered later the same day always query
+  // the same time range (yesterday midnight → today midnight, Amsterdam time).
+  // The TZ=Europe/Amsterdam env var makes new Date(year, month, day) local-midnight
+  // resolve to Amsterdam midnight in UTC.
+  const todayAmsterdamStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Amsterdam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(generatedAt);
+  const [amsYear, amsMonth, amsDay] = todayAmsterdamStr.split("-").map(Number);
+  const midnightTodayAmsterdam = new Date(amsYear, amsMonth - 1, amsDay, 0, 0, 0, 0);
+  const primarySince = new Date(midnightTodayAmsterdam.getTime() - lookbackHours * 60 * 60 * 1000);
   const primarySinceIso = primarySince.toISOString();
 
   const publishRows = await rowsFromPublishBatches(

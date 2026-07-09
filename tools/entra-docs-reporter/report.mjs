@@ -595,9 +595,9 @@ async function main() {
   // rather than "now minus N hours".  This ensures that both the scheduled 07:00
   // run and a manual workflow_dispatch triggered later the same day always query
   // the same time range (yesterday midnight → today midnight, Amsterdam time).
-  // The TZ=Europe/Amsterdam env var makes new Date(year, month, day) local-midnight
-  // resolve to Amsterdam midnight in UTC.
-  const todayAmsterdamStr = new Intl.DateTimeFormat("en-CA", {
+  // Note: the workflow sets TZ=Europe/Amsterdam so Node.js local-time operations
+  // (new Date(year, month, day)) resolve to Amsterdam midnight in UTC.
+  const todayAmsterdamStr = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Amsterdam",
     year: "numeric",
     month: "2-digit",

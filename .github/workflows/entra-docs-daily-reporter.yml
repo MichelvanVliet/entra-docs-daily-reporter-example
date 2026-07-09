@@ -68,11 +68,6 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const label = metadata.label || process.env.ISSUE_LABEL;
-            const notificationComment = [
-              `Daily report refresh for ${metadata.title}.`,
-              '',
-              `The issue body was updated with the latest 24-hour report (${metadata.total24h} items).`
-            ].join('\n');
 
             const labelsResponse = await github.rest.issues.listLabelsForRepo({ owner, repo, per_page: 100 });
             const hasLabel = labelsResponse.data.some(l => l.name === label);
@@ -87,6 +82,11 @@ jobs:
 
             if (found.data.items.length > 0) {
               const issueNumber = found.data.items[0].number;
+              const notificationComment = [
+                `Daily report refresh for ${metadata.title}.`,
+                '',
+                `The issue body was updated with the latest 24-hour report (${metadata.total24h} items).`
+              ].join('\n');
               await github.rest.issues.update({
                 owner,
                 repo,
@@ -103,7 +103,7 @@ jobs:
                   body: notificationComment
                 });
               } catch (error) {
-                core.error(`Failed to post refresh comment on issue #${issueNumber}.`);
+                core.error(`Failed to post refresh comment on issue #${issueNumber}: ${error.message}`);
                 throw error;
               }
               core.info(`Updated issue #${issueNumber}`);
